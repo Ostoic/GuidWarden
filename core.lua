@@ -85,27 +85,16 @@ function GuidWarden:addEncounter(guid, name, realm, class, race, gender)
    for _, encounter in ipairs(encounters) do
 	  -- We are unable to tell whether our faction or our target's faction
 	  -- has changed as a consequene of mercenary battlegrounds
-	  if UnitInBattleground('player') then	  
-		  if encounter['name'] == name 
-		  and encounter['realm'] == realm 
-		  and encounter['class'] == class
-		  and encounter['gender'] == genderTable[gender] then 
-			 encounter['date'] = date()
-			self:Debug('[GuidWarden:addEncounter] updated')
-			 return 'updated'
-		  end
-	  else	  
-		  if encounter['name'] == name 
-		  and encounter['realm'] == realm 
-		  and encounter['class'] == class 
-		  and encounter['race'] == race 
-		  and encounter['gender'] == genderTable[gender] then 
-			 encounter['date'] = date()
-			self:Debug('[GuidWarden:addEncounter] updated')
-			 return 'updated'
-		  end
+	  if encounter['name'] == name 
+	  and encounter['realm'] == realm 
+	  and encounter['class'] == class 
+	  and encounter['race'] == race 
+	  and encounter['gender'] == genderTable[gender] then 
+		 encounter['date'] = date()
+		self:Debug('[GuidWarden:addEncounter] updated')
+		 return 'updated'
 	  end
-   end
+end
    
    -- New distince encounter of known player
    table.insert(encounters, {
@@ -127,7 +116,7 @@ function GuidWarden:addBlacklist(guid)
 end
 
 function GuidWarden:UNIT_TARGET()
-  if not UnitIsPlayer('target') then 
+  if not UnitIsPlayer('target') or UnitInBattleground('player') then 
 	 return
   end
   
