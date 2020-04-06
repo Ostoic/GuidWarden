@@ -1,6 +1,8 @@
 local GuidWarden = LibStub("AceAddon-3.0"):NewAddon('GuidWarden', 'AceConsole-3.0', "AceEvent-3.0")
 local db
 
+local genderTable = { "Unknown", "Male", "Female" }
+
 local options = {
 	name = 'GuidWarden',
 	handler = GuidWarden,
@@ -13,6 +15,14 @@ local options = {
 			get = 'isMonitoringAll',
 			set = 'toggleMonitorAll',
 		},
+		
+		debug = {
+			type = 'toggle',
+			name = 'Debug',
+			desc = 'Enables debug messages to be displayed',
+			get = 'isDebug',
+			set = 'toggleDebug',
+		},
 	}
 }
 
@@ -24,11 +34,31 @@ function GuidWarden:toggleMonitorAll(info, value)
 	db.monitorAll = value
 end
 
+function GuidWarden:isDebug(info)
+	return db.debug
+end
+
+function GuidWarden:toggleDebug(info, value)
+	db.debug = value
+end
+
+function GuidWarden:Debug(format, ...)
+	if db.debug then
+		self:Print(string.format(format, ...))
+	end
+end
+
 function GuidWarden:addEncounter(guid, name, realm, class, race, gender)
 	if name == nil or realm == nil or class == nil or race == nil or gender == nil then
 		class, _, race, _, gender, name, realm = GetPlayerInfoByGUID(guid)
 	end
 	
+  if realm == '' then
+	realm = GetRealmName()
+  end
+	
+	self:Debug('[GuidWarden:addEncounter] %s (%s)', name, guid)
+
    local encounters = db.previous_players_encountered[guid]
    if encounters == nil then 
       db.previous_players_encountered[guid] = {[1] = {
@@ -36,10 +66,11 @@ function GuidWarden:addEncounter(guid, name, realm, class, race, gender)
             realm = realm,
             class = class,
             race = race,
-            gender = gender,
+            gender = genderTable[gender],
             date = date()
       }}
       
+		self:Debug('[GuidWarden:addEncounter] new')
       return 'new'
    end
    
@@ -48,8 +79,9 @@ function GuidWarden:addEncounter(guid, name, realm, class, race, gender)
       and encounter['realm'] == realm 
       and encounter['class'] == class 
       and encounter['race'] == race 
-      and encounter['gender'] == gender then 
+      and encounter['gender'] == genderTable[gender] then 
          encounter['date'] = date()
+		self:Debug('[GuidWarden:addEncounter] updated')
          return 'updated'
       end
    end
@@ -60,13 +92,16 @@ function GuidWarden:addEncounter(guid, name, realm, class, race, gender)
          realm = realm,
          class = class,
          race = race,
-         gender = gender,
+         gender = genderTable[gender],
          date = date()
    })
+   
+	self:Debug('[GuidWarden:addEncounter] conflict')
    return 'conflict'
 end
 
 function GuidWarden:addBlacklist(guid)
+	self:Debug('[GuidWarden:addBlacklist] ' .. guid)
    db.blacklist[guid] = db.previous_players_encountered[guid]
 end
 
@@ -81,8 +116,9 @@ function GuidWarden:UNIT_TARGET()
 	realm = GetRealmName()
   end
   
+	self:Debug('[GuidWarden:UNIT_TARGET] ')
   if (not self:isMonitoringAll() and db.blacklist[guid] ~= nil) or self:isMonitoringAll() then
-	local result = self:addEncounter(guid, name, realm, class, race, gender)
+	local result = self:addEncounter(guid, name, realm, class, race, UnitSexgender)
 	if result == 'conflict' then
 		self:Print(string.format('Player %s seen with conflicting player data', name))
 		self:Print('Perform a "/guid lookup <name>" for more details')
@@ -92,6 +128,7 @@ end
 
 function GuidWarden:blacklistTarget()
 	if not UnitIsPlayer('target') then return end
+	self:Debug('[GuidWarden:blacklistTarget] ')
 	
 	local guid = UnitGUID('target')
 	if guid == nil then return end
@@ -103,6 +140,7 @@ function GuidWarden:blacklistTarget()
 end
 
 function GuidWarden:lookup(name)
+	self:Debug('[GuidWarden:lookup] ', name)
 	local lowered_name = string.lower(name)
 	for guid, encounters in pairs(db.previous_players_encountered) do
 		for i, data in ipairs(encounters) do
@@ -172,5 +210,5 @@ function GuidWarden:OnEnable()
 	db = self.db.global
 	
 	self:RegisterEvent('UNIT_TARGET')
-	self:Print('enabled')
+	self:Print('loaded')
 end
