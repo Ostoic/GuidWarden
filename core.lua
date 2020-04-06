@@ -57,8 +57,16 @@ function GuidWarden:addEncounter(guid, name, realm, class, race, gender)
 	realm = GetRealmName()
   end
 	
-	self:Debug('[GuidWarden:addEncounter] %s (%s)', name, guid)
-
+	self:Debug('[GuidWarden:addEncounter] %s (%s)', name or 'nil', guid)
+	
+	if name == nil or realm == nil or class == nil or race == nil or gender == nil then
+		self:Print('Failed to add ' .. guid .. ' to database')
+		self:Print(string.format(
+			'name: %s, realm: %s, guid: %s, gender: %s, race: %s, class: %s',
+			name or 'nil', realm or 'nil', guid or 'nil', gender or 'nil', race or 'nil', class or 'nil'
+		))
+		return
+	end
    local encounters = db.previous_players_encountered[guid]
    if encounters == nil then 
       db.previous_players_encountered[guid] = {[1] = {
@@ -75,15 +83,28 @@ function GuidWarden:addEncounter(guid, name, realm, class, race, gender)
    end
    
    for _, encounter in ipairs(encounters) do
-      if encounter['name'] == name 
-      and encounter['realm'] == realm 
-      and encounter['class'] == class 
-      and encounter['race'] == race 
-      and encounter['gender'] == genderTable[gender] then 
-         encounter['date'] = date()
-		self:Debug('[GuidWarden:addEncounter] updated')
-         return 'updated'
-      end
+	  -- We are unable to tell whether our faction or our target's faction
+	  -- has changed as a consequene of mercenary battlegrounds
+	  if UnitInBattleground('player') then	  
+		  if encounter['name'] == name 
+		  and encounter['realm'] == realm 
+		  and encounter['class'] == class
+		  and encounter['gender'] == genderTable[gender] then 
+			 encounter['date'] = date()
+			self:Debug('[GuidWarden:addEncounter] updated')
+			 return 'updated'
+		  end
+	  else	  
+		  if encounter['name'] == name 
+		  and encounter['realm'] == realm 
+		  and encounter['class'] == class 
+		  and encounter['race'] == race 
+		  and encounter['gender'] == genderTable[gender] then 
+			 encounter['date'] = date()
+			self:Debug('[GuidWarden:addEncounter] updated')
+			 return 'updated'
+		  end
+	  end
    end
    
    -- New distince encounter of known player
@@ -140,7 +161,7 @@ function GuidWarden:blacklistTarget()
 end
 
 function GuidWarden:lookup(name)
-	self:Debug('[GuidWarden:lookup] ', name)
+	self:Debug('[GuidWarden:lookup] ' .. name)
 	local lowered_name = string.lower(name)
 	for guid, encounters in pairs(db.previous_players_encountered) do
 		for i, data in ipairs(encounters) do
@@ -163,8 +184,16 @@ function GuidWarden:ChatHandler(msg)
 	if #substrings == 1 and msg == 'add' then
 		self:blacklistTarget()
 		
-	elseif #substrings == 2 and command == 'lookup' then
-		local name = substrings[2]
+	elseif #substrings >= 1 and command == 'lookup' then
+		local name
+		if #substrings >= 2 then
+			name = substrings[2]
+		else
+			name = UnitName('target')
+		end
+		
+		self:Debug(name)
+		
 		local guid, encounters = self:lookup(name)
 		
 		if guid == nil then
