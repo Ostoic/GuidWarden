@@ -3,7 +3,7 @@
 ## Version: v1.0
 ## Notes: Logs and tracks players who rename or faction change
 ## Author: Horsebreed
-## SavedVariablesPerCharacter: GuidWardenDB
+## SavedVariables: GuidWardenDB
 ## X-Embeds: Ace3
 
 embeds.xml
