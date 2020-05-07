@@ -28,6 +28,14 @@ local options = {
 			set = 'ToggleDebug',
 		},
 		
+		quiet = {
+			type = 'toggle',
+			name = 'Quiet Mode',
+			desc = 'When disabled, notifies the user of any conflicts even after first encounter',
+			get = 'IsQuiet',
+			set = 'ToggleQuiet',
+		},
+		
 		logging = {
 			type = 'toggle',
 			name = 'Log',
@@ -54,16 +62,24 @@ function GuidWarden:IsDebug(info)
 	return db.debug
 end
 
+function GuidWarden:ToggleDebug(info, value)
+	db.debug = value
+end
+
+function GuidWarden:IsQuiet(info)
+	return db.quiet
+end
+
+function GuidWarden:ToggleQuiet(info, value)
+	db.quiet = value
+end
+
 function GuidWarden:ToggleLogging(info, value)
 	db.logging = value
 end
 
 function GuidWarden:IsLogging(info)
 	return db.logging
-end
-
-function GuidWarden:ToggleDebug(info, value)
-	db.debug = value
 end
 
 function GuidWarden:Debug(format, ...)
@@ -138,6 +154,7 @@ function GuidWarden:AddEncounter(guid, name, realm, class, race, gender)
 	
 	local start_db_search = GetTime()
 	local num_entries = 0
+	
 	-- Search through entire list of players to see if any have had the same name in the past.
 	for new_guid, encounters in pairs(db.previous_players_encountered) do
 		num_entries = num_entries + 1
@@ -160,7 +177,12 @@ function GuidWarden:AddEncounter(guid, name, realm, class, race, gender)
    
 	local start_update = GetTime()
 	local encounter = searchEncounters(encounters, name, realm, class, race, gender)
-	if encounter ~= nil then
+	if encounter ~= nil then   
+		self:Debug('Number of encounters: %d', #encounters)
+		if not self:IsQuiet() and #encounters > 1 then
+			return 'conflict'
+		end
+		
 		self:Debug('[GuidWarden:AddEncounter] %s updated', encounter['name'])
 		encounter['date'] = date()
 		self:Debug('Time to update: %s', GetTime() - start_update)
