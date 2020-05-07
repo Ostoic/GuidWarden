@@ -27,6 +27,14 @@ local options = {
 			get = 'IsDebug',
 			set = 'ToggleDebug',
 		},
+		
+		logging = {
+			type = 'toggle',
+			name = 'Log',
+			desc = 'Enables addon information to be logged for further analysis',
+			get = 'IsLogging',
+			set = 'ToggleLogging',
+		},
 	}
 }
 
@@ -46,14 +54,48 @@ function GuidWarden:IsDebug(info)
 	return db.debug
 end
 
+function GuidWarden:ToggleLogging(info, value)
+	db.logging = value
+end
+
+function GuidWarden:IsLogging(info)
+	return db.logging
+end
+
 function GuidWarden:ToggleDebug(info, value)
 	db.debug = value
 end
 
 function GuidWarden:Debug(format, ...)
+	if format == nil then return end
 	if db.debug then
 		self:Print(string.format(format, ...))
 	end
+end
+
+function GuidWarden:Log(format, ...)
+	if format == nil then return end
+	if not db.logging then return end
+	
+	local message = string.format(format, ...)
+	local logged_message = string.format('[%s] %s', date(), message)
+	table.insert(db.log, logged_message)
+end
+
+local function searchEncounters(encounters, name, realm, class, race, gender, exclude_guid)
+	for i, encounter in ipairs(encounters) do
+		-- We are unable to tell whether our faction or our target's faction
+		-- has changed as a consequene of being in a mercenary battleground
+		if encounter['name'] == name 
+		and encounter['realm'] == realm 
+		and encounter['class'] == class 
+		and encounter['race'] == race 
+		and encounter['gender'] == genderTable[gender] then 
+			return encounter
+	  end
+   end
+   
+   return nil
 end
 
 function GuidWarden:AddEncounter(guid, name, realm, class, race, gender)
@@ -61,91 +103,118 @@ function GuidWarden:AddEncounter(guid, name, realm, class, race, gender)
 		class, _, race, _, gender, name, realm = GetPlayerInfoByGUID(guid)
 	end
 	
-  if realm == '' then
-	realm = GetRealmName()
-  end
+	if realm == '' then
+		realm = GetRealmName()
+	end
 	
 	self:Debug('[GuidWarden:AddEncounter] %s (%s)', name or 'nil', guid)
 	
-	if self:InBG() or name == nil or realm == nil or class == nil or race == nil or gender == nil then
+	-- We are unable to tell whether our faction or our target's faction
+	-- has changed as a consequene of being in a mercenary battleground
+	if name == nil or realm == nil or class == nil or race == nil or gender == nil then
 		self:Debug('Failed to add ' .. guid .. ' to database')
-		self:Debug(string.format(
+		self:Debug(
 			'name: %s, realm: %s, guid: %s, gender: %s, race: %s, class: %s',
 			name or 'nil', realm or 'nil', guid or 'nil', gender or 'nil', race or 'nil', class or 'nil'
-		))
+		)
 		return
 	end
-   local encounters = db.previous_players_encountered[guid]
-   if encounters == nil then 
-      db.previous_players_encountered[guid] = {[1] = {
-            name = name,
-            realm = realm,
-            class = class,
-            race = race,
-            gender = genderTable[gender],
-            date = date()
-      }}
-      
+	
+	self:Log("[GuidWarden:AddEncounter] %s (%s) %s, InBG(): %s, UnitIsVisible(\'target\'): %s, debugstack: %s", name, guid, race, tostring(self:InBG()), tostring(UnitIsVisible('target')), debugstack())
+	
+	local encounters = db.previous_players_encountered[guid]
+	if encounters == nil then 
+		db.previous_players_encountered[guid] = {[1] = {
+			name = name,
+			realm = realm,
+			class = class,
+			race = race,
+			gender = genderTable[gender],
+			date = date()
+		}}
 		self:Debug('[GuidWarden:AddEncounter] new')
-      return 'new'
-   end
+		return 'new'
+	end
+	
+	local start_db_search = GetTime()
+	local num_entries = 0
+	-- Search through entire list of players to see if any have had the same name in the past.
+	for new_guid, encounters in pairs(db.previous_players_encountered) do
+		num_entries = num_entries + 1
+		if new_guid ~= guid then 
+			local encounter = searchEncounters(encounters, name, realm, class, race, gender)
+			if encounter ~= nil then
+				self:Debug('[GuidWarden:AddEncounter] Long search conflict')
+				self:Debug('Time to search guid database: %s', GetTime() - start_db_search)
+				return 'conflict'
+			end
+		end
+	end
+	self:Debug('Time to search guid database: %s', GetTime() - start_db_search)
+	if GetTime() - start_db_search >= 0.1 then
+		self:Print(string.format(
+			'Warning: guid encounter database size is becoming too large: %d entries',
+			num_entries
+		))
+	end
    
-   for _, encounter in ipairs(encounters) do
-	  -- We are unable to tell whether our faction or our target's faction
-	  -- has changed as a consequene of mercenary battlegrounds
-	  if encounter['name'] == name 
-	  and encounter['realm'] == realm 
-	  and encounter['class'] == class 
-	  and encounter['race'] == race 
-	  and encounter['gender'] == genderTable[gender] then 
-		 encounter['date'] = date()
-		self:Debug('[GuidWarden:AddEncounter] updated')
-		 return 'updated'
-	  end
-end
+	local start_update = GetTime()
+	local encounter = searchEncounters(encounters, name, realm, class, race, gender)
+	if encounter ~= nil then
+		self:Debug('[GuidWarden:AddEncounter] %s updated', encounter['name'])
+		encounter['date'] = date()
+		self:Debug('Time to update: %s', GetTime() - start_update)
+		return 'updated'
+	end
+	self:Debug('Time to update: %s', GetTime() - start_update)
    
-   -- New distince encounter of known player
-   table.insert(encounters, {
-         name = name,
-         realm = realm,
-         class = class,
-         race = race,
-         gender = genderTable[gender],
-         date = date()
-   })
+   -- New distinct encounter of known player
+	table.insert(encounters, {
+		name = name,
+		realm = realm,
+		class = class,
+		race = race,
+		gender = genderTable[gender],
+		date = date()
+	})
    
 	self:Debug('[GuidWarden:AddEncounter] conflict')
-   return 'conflict'
+	return 'conflict'
 end
 
 function GuidWarden:AddBlacklist(guid)
 	self:Debug('[GuidWarden:AddBlacklist] ' .. guid)
-   db.blacklist[guid] = db.previous_players_encountered[guid]
+	db.blacklist[guid] = db.previous_players_encountered[guid]
 end
 
+local last_scan = GetTime()
+
 function GuidWarden:UNIT_TARGET()
-  if not UnitIsPlayer('target') or self:InBG() then 
-	 return
-  end
-  
-  local guid = UnitGUID('target')
-  local class, _, race, _, gender, name, realm = GetPlayerInfoByGUID(guid)
-  if realm == '' then
-	realm = GetRealmName()
-  end
-  
-	self:Debug('[GuidWarden:UNIT_TARGET] ')
-  if (not self:IsMonitoringAll() and db.blacklist[guid] ~= nil) or self:IsMonitoringAll() then
-	local result = self:AddEncounter(guid, name, realm, class, race, UnitSexgender)
-	if result == 'conflict' then
-		self:Print(string.format('Player %s seen with conflicting player data', name))
-		self:Print('Perform a "/guid lookup <name>" for more details')
+	local current_time = GetTime()
+	if (current_time - last_scan < 0.1) or self:InBG() 
+	  or not UnitIsVisible('target') or not UnitIsPlayer('target') then 
+		return
 	end
-  end
+  
+	last_scan = current_time
+	local guid = UnitGUID('target')
+	local class, _, race, _, gender, name, realm = GetPlayerInfoByGUID(guid)
+	if realm == '' then
+		realm = GetRealmName()
+	end
+
+	self:Debug('[GuidWarden:UNIT_TARGET] ')
+	if (not self:IsMonitoringAll() and db.blacklist[guid] ~= nil) or self:IsMonitoringAll() then
+		local result = self:AddEncounter(guid, name, realm, class, race, UnitSexgender)
+		if result == 'conflict' then
+			self:Print(string.format('Player %s seen with conflicting player data', name))
+			self:Print('Perform a "/guid lookup <name>" for more details')
+		end
+	end
 end
 
 function GuidWarden:BlacklistTarget()
-	if not UnitIsPlayer('target') or self:InBG() then return end
+	if not UnitIsPlayer('target') then return end
 	self:Debug('[GuidWarden:BlacklistTarget] ')
 	
 	local guid = UnitGUID('target')
@@ -158,50 +227,41 @@ function GuidWarden:BlacklistTarget()
 end
 
 function GuidWarden:Lookup(name)
-	self:Debug('[GuidWarden:Lookup] looking for' .. name)
+	if name == nil or #name == 0 then return nil end
+	
+	local encountered_guids = {}
+	
+	self:Debug('[GuidWarden:Lookup] looking for ' .. name)
 	local lowered_name = string.lower(name)
 	for guid, encounters in pairs(db.previous_players_encountered) do
 		for i, data in ipairs(encounters) do
 			if data and data['name'] and string.lower(data['name']) == lowered_name then
-				return guid, encounters
+				table.insert(encountered_guids, {guid=guid, encounters=encounters})
 			end
 		end
 	end
 	
-	return nil
+	return encountered_guids
 end
 
-function GuidWarden:ChatHandler(msg)
-	local substrings = {strsplit(' ', msg)}
-	if #substrings == 0 then 
-        InterfaceOptionsFrame_OpenToCategory(self.optionsFrame)
-	end
+function GuidWarden:HandleLookup(name)
+	self:Debug(name)
 	
-	local command = string.lower(substrings[1])
-	if not self:InBG() and #substrings == 1 and msg == 'add' then
-		self:BlacklistTarget()
+	local encountered_guids = self:Lookup(name)
+	
+	if #encountered_guids == 0 then
+		self:Print(string.format(
+			'Unable to find player %s in previous encounters',
+			name
+		))
 		
-	elseif #substrings >= 1 and command == 'lookup' then
-		local name
-		if #substrings >= 2 then
-			name = substrings[2]
-		else
-			name = UnitName('target')
-		end
-		
-		self:Debug(name)
-		
-		local guid, encounters = self:Lookup(name)
-		
-		if guid == nil then
-			self:Print(string.format(
-				'Unable to find player %s in player encounters',
-				name
-			))
+	else
+		for _, encountered_guid in ipairs(encountered_guids) do
+			local guid = encountered_guid.guid
+			local encounters = encountered_guid.encounters
 			
-		else
 			self:Print(string.format(
-				'Player %s (%s) found with the following data:',
+				'Player with guid %s found with the following data:',
 				name, guid
 			))
 			for _, data in ipairs(encounters) do
@@ -211,6 +271,44 @@ function GuidWarden:ChatHandler(msg)
 				))
 			end
 		end
+	end
+end
+
+function GuidWarden:Collisions()
+	local names = {}
+	for guid, encounters in pairs(db.previous_players_encountered) do
+		if #encounters > 1 then
+			table.insert(names, encounters[1]['name'])
+		end
+	end
+	return names
+end
+
+function GuidWarden:ChatHandler(msg)
+	local substrings = {strsplit(' ', msg)}
+	if #substrings == 0 then 
+        InterfaceOptionsFrame_OpenToCategory(self.optionsFrame)
+	end
+	
+	local command = string.lower(substrings[1])
+	if #substrings == 1 and (command == 'add' or command == 'scan') then
+		self:BlacklistTarget()
+		
+	elseif #substrings == 1 and command == 'collisions' then
+		local collisions = self:Collisions()
+		for _, name in ipairs(collisions) do
+			self:HandleLookup(name)
+		end
+	
+	elseif #substrings >= 1 and command == 'lookup' then
+		local name
+		if #substrings >= 2 then
+			name = substrings[2]
+		else
+			name = UnitName('target')
+		end
+		
+		self:HandleLookup(name)
 	end
 end
 
@@ -232,6 +330,8 @@ function GuidWarden:OnEnable()
 		global = {
 			monitorAll = false,
 			debug = false,
+			logging = false,
+			log = {},
 			blacklist = {},
 			previous_players_encountered = {},
 		},		

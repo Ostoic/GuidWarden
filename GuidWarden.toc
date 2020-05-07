@@ -1,6 +1,6 @@
 ## Interface: 30300
 ## Title: Guid Warden
-## Version: v1.0
+## Version: v1.1
 ## Notes: Logs and tracks players who rename or faction change
 ## Author: Horsebreed
 ## SavedVariables: GuidWardenDB
