@@ -284,7 +284,7 @@ function GuidWarden:HandleLookup(name)
 			
 			self:Print(string.format(
 				'Player with guid %s found with the following data:',
-				name, guid
+				guid
 			))
 			for _, data in ipairs(encounters) do
 				self:Print(string.format(
