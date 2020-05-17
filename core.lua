@@ -210,6 +210,7 @@ function GuidWarden:AddBlacklist(guid)
 end
 
 local last_scan = GetTime()
+local last_conflict = GetTime()
 
 function GuidWarden:UNIT_TARGET()
 	local current_time = GetTime()
@@ -229,8 +230,11 @@ function GuidWarden:UNIT_TARGET()
 	if (not self:IsMonitoringAll() and db.blacklist[guid] ~= nil) or self:IsMonitoringAll() then
 		local result = self:AddEncounter(guid, name, realm, class, race, UnitSexgender)
 		if result == 'conflict' then
-			self:Print(string.format('Player %s seen with conflicting player data', name))
-			self:Print('Perform a "/guid lookup <name>" for more details')
+			if current_time - last_conflict > 10 then
+				last_conflict = current_time
+				self:Print(string.format('Player %s seen with conflicting player data', name))
+				self:Print('Perform a "/guid lookup <name>" for more details')
+			end
 		end
 	end
 end
@@ -251,37 +255,43 @@ end
 function GuidWarden:Lookup(name)
 	if name == nil or #name == 0 then return nil end
 	
-	local encountered_guids = {}
+	local encountered_players = nil
 	
 	self:Debug('[GuidWarden:Lookup] looking for ' .. name)
 	local lowered_name = string.lower(name)
 	for guid, encounters in pairs(db.previous_players_encountered) do
-		for i, data in ipairs(encounters) do
+		for _, data in ipairs(encounters) do
 			if data and data['name'] and string.lower(data['name']) == lowered_name then
-				table.insert(encountered_guids, {guid=guid, encounters=encounters})
+				if encountered_players == nil then
+					encountered_players = {}
+				end
+				
+				encountered_players[guid] = encounters
+				-- if encountered_players[guid] == nil then
+				-- 	encountered_players[guid] = {}
+				-- end
+				
+				-- table.insert(encountered_players[guid], encounters)
 			end
 		end
 	end
 	
-	return encountered_guids
+	return encountered_players
 end
 
 function GuidWarden:HandleLookup(name)
 	self:Debug(name)
 	
-	local encountered_guids = self:Lookup(name)
+	local encountered_players = self:Lookup(name)
 	
-	if #encountered_guids == 0 then
+	if encountered_players == nil then
 		self:Print(string.format(
 			'Unable to find player %s in previous encounters',
 			name
 		))
 		
 	else
-		for _, encountered_guid in ipairs(encountered_guids) do
-			local guid = encountered_guid.guid
-			local encounters = encountered_guid.encounters
-			
+		for guid, encounters in pairs(encountered_players) do
 			self:Print(string.format(
 				'Player with guid %s found with the following data:',
 				guid
