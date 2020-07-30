@@ -46,8 +46,17 @@ local options = {
 	}
 }
 
+local lastTimeInBG = nil
+
 function GuidWarden:InBG()
-	return UnitInBattleground('player') ~= nil
+	local inBG = UnitInBattleground('player')
+	local result = not (inBG == nil or inBG == 0)
+	
+	if result then
+		lastTimeInBG = GetTime()
+	end
+	
+	return result
 end
 
 function GuidWarden:IsMonitoringAll(info)
@@ -136,7 +145,7 @@ function GuidWarden:AddEncounter(guid, name, realm, class, race, gender)
 		return
 	end
 	
-	self:Log("[GuidWarden:AddEncounter] %s (%s) %s, InBG(): %s, UnitIsVisible(\'target\'): %s, debugstack: %s", name, guid, race, tostring(self:InBG()), tostring(UnitIsVisible('target')), debugstack())
+	self:Log("[GuidWarden:AddEncounter] %s (%s) %s, InBG1(): %s, zone: %s, UnitIsVisible(\'target\'): %s, debugstack: %s", name, guid, race, tostring(self:InBG()), GetZoneText(), tostring(UnitIsVisible('target')), debugstack())
 	
 	local encounters = db.previous_players_encountered[guid]
 	if encounters == nil then 
@@ -212,20 +221,33 @@ end
 local last_scan = GetTime()
 local last_conflict = GetTime()
 
+local function getFaction(race)
+	if race == 'Human' or race == 'Night Elf' or race == 'Draenai' or race == 'Dwarf' or race == 'Gnome' then
+		return 'Alliance'
+	end
+	
+	return 'Horde'
+end
+
+function GuidWarden:IsMercenaryBG()
+	local _, _, race = GetPlayerInfoByGUID(UnitGUID('player'))
+	return self:InBG() and UnitRace('player') ~= race
+end
+
 function GuidWarden:UNIT_TARGET()
 	local current_time = GetTime()
-	if (current_time - last_scan < 0.1) or self:InBG() 
-	  or not UnitIsVisible('target') or not UnitIsPlayer('target') then 
+	if (current_time - last_scan < 0.1) or not UnitIsPlayer('target') or self:InBG() or self:IsMercenaryBG()
+	  or not UnitIsVisible('target') or (GetTime() - lastTimeInBG) < 20 then 
 		return
 	end
-  
+	
 	last_scan = current_time
 	local guid = UnitGUID('target')
 	local class, _, race, _, gender, name, realm = GetPlayerInfoByGUID(guid)
 	if realm == '' then
 		realm = GetRealmName()
 	end
-
+	
 	self:Debug('[GuidWarden:UNIT_TARGET] ')
 	if (not self:IsMonitoringAll() and db.blacklist[guid] ~= nil) or self:IsMonitoringAll() then
 		local result = self:AddEncounter(guid, name, realm, class, race, UnitSexgender)
