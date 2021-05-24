@@ -1,6 +1,6 @@
 local GuidWarden = LibStub("AceAddon-3.0"):NewAddon(
 	'GuidWarden', 
-	'AceConsole-3.0', 'AceComm-3.0', 'AceEvent-3.0'
+	'AceConsole-3.0', 'AceComm-3.0', 'AceEvent-3.0', 'AceSerializer-3.0'
 )
 
 local db
@@ -46,7 +46,13 @@ local options = {
 	}
 }
 
-local lastTimeInBG = nil
+local lastTimeInBG = 0
+
+
+local function dump(name, obj)
+	_G['guidwardendumpvariable_' .. name] = obj
+	SlashCmdList['DUMP']('guidwardendumpvariable_' .. name)
+end 
 
 function GuidWarden:InBG()
 	local inBG = UnitInBattleground('player')
@@ -237,7 +243,7 @@ end
 function GuidWarden:UNIT_TARGET()
 	local current_time = GetTime()
 	if (current_time - last_scan < 0.1) or not UnitIsPlayer('target') or self:InBG() or self:IsMercenaryBG()
-	  or not UnitIsVisible('target') or (GetTime() - lastTimeInBG) < 20 then 
+	  or not UnitIsVisible('target') or (GetTime() - lastTimeInBG) < 60 then 
 		return
 	end
 	
@@ -252,7 +258,7 @@ function GuidWarden:UNIT_TARGET()
 	if (not self:IsMonitoringAll() and db.blacklist[guid] ~= nil) or self:IsMonitoringAll() then
 		local result = self:AddEncounter(guid, name, realm, class, race, UnitSexgender)
 		if result == 'conflict' then
-			if current_time - last_conflict > 10 then
+			if current_time - last_conflict > 300 then
 				last_conflict = current_time
 				self:Print(string.format('Player %s seen with conflicting player data', name))
 				self:Print('Perform a "/guid lookup <name>" for more details')
@@ -302,8 +308,12 @@ function GuidWarden:Lookup(name)
 end
 
 function GuidWarden:HandleLookup(name)
-	self:Debug(name)
+	if name == nil then
+		self:Debug('Name is empty!')
+		return
+	end
 	
+	self:Debug(name)
 	local encountered_players = self:Lookup(name)
 	
 	if encountered_players == nil then
@@ -353,6 +363,10 @@ function GuidWarden:ChatHandler(msg)
 		for _, name in ipairs(collisions) do
 			self:HandleLookup(name)
 		end
+		
+	elseif #substrings == 1 and command == 'debug' then
+		self:SendData('Hello, how are you? I am debug jones and I am here to stay')
+		--self:Test()
 	
 	elseif #substrings >= 1 and command == 'lookup' then
 		local name
@@ -366,13 +380,10 @@ function GuidWarden:ChatHandler(msg)
 	end
 end
 
-function GuidWarden:OnCommReceived(prefix, message, distribution, sender)
-	self:Debug('Comm received: [%s] [%s] [%s]: %s', prefix, distribution, sender, message)
-end
-
 function GuidWarden:OnInitialize()
 	LibStub("AceConfig-3.0"):RegisterOptionsTable('GuidWarden', options)
-	
+	self.api_key = 'bigbigbigbongourbrother'
+		
     self.optionsFrame = LibStub("AceConfigDialog-3.0"):AddToBlizOptions('GuidWarden', 'GuidWarden')
 	self:RegisterChatCommand('gw', 'ChatHandler')
 	self:RegisterChatCommand('guid', 'ChatHandler')
